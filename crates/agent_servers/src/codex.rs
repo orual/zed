@@ -8,29 +8,29 @@ use settings::SettingsStore;
 use crate::AllAgentServersSettings;
 
 #[derive(Clone)]
-pub struct Gemini;
+pub struct Codex;
 
-const ACP_ARG: &str = "--experimental-acp";
+const ACP_ARG: &str = "experimental-acp";
 
-impl StdioAgentServer for Gemini {
+impl StdioAgentServer for Codex {
     fn name(&self) -> &'static str {
-        "Gemini"
+        "Codex"
     }
 
     fn empty_state_headline(&self) -> &'static str {
-        "Welcome to Gemini"
+        "Welcome to Codex"
     }
 
     fn empty_state_message(&self) -> &'static str {
-        "Ask questions, edit files, run commands.\nBe specific for the best results."
+        ""
     }
 
     fn supports_always_allow(&self) -> bool {
-        true
+        false
     }
 
     fn logo(&self) -> ui::IconName {
-        ui::IconName::AiGemini
+        ui::IconName::AiOpenAi
     }
 
     async fn command(
@@ -40,27 +40,24 @@ impl StdioAgentServer for Gemini {
     ) -> Result<AgentServerCommand> {
         let custom_command = cx.read_global(|settings: &SettingsStore, _| {
             let settings = settings.get::<AllAgentServersSettings>(None);
-            settings
-                .gemini
-                .as_ref()
-                .map(|gemini_settings| AgentServerCommand {
-                    path: gemini_settings.command.path.clone(),
-                    args: gemini_settings
-                        .command
-                        .args
-                        .iter()
-                        .cloned()
-                        .chain(std::iter::once(ACP_ARG.into()))
-                        .collect(),
-                    env: gemini_settings.command.env.clone(),
-                })
+            settings.codex.as_ref().map(|codex| AgentServerCommand {
+                path: codex.command.path.clone(),
+                args: codex
+                    .command
+                    .args
+                    .iter()
+                    .cloned()
+                    .chain(std::iter::once(ACP_ARG.into()))
+                    .collect(),
+                env: codex.command.env.clone(),
+            })
         })?;
 
         if let Some(custom_command) = custom_command {
             return Ok(custom_command);
         }
 
-        if let Some(path) = find_bin_in_path("gemini", project, cx).await {
+        if let Some(path) = find_bin_in_path("codex", project, cx).await {
             return Ok(AgentServerCommand {
                 path,
                 args: vec![ACP_ARG.into()],
@@ -71,14 +68,14 @@ impl StdioAgentServer for Gemini {
         let (fs, node_runtime) = project.update(cx, |project, _| {
             (project.fs().clone(), project.node_runtime().cloned())
         })?;
-        let node_runtime = node_runtime.context("gemini not found on path")?;
+        let node_runtime = node_runtime.context("codex not found on path")?;
 
-        let directory = ::paths::agent_servers_dir().join("gemini");
+        let directory = ::paths::agent_servers_dir().join("codex");
         fs.create_dir(&directory).await?;
         node_runtime
-            .npm_install_packages(&directory, &[("@google/gemini-cli", "latest")])
+            .npm_install_packages(&directory, &[("@openai/codex", "latest")])
             .await?;
-        let path = directory.join("node_modules/.bin/gemini");
+        let path = directory.join("node_modules/.bin/codex");
 
         Ok(AgentServerCommand {
             path,
@@ -110,11 +107,11 @@ impl StdioAgentServer for Gemini {
         } else {
             Ok(AgentServerVersion::Unsupported {
                 error_message: format!(
-                    "Your installed version of Gemini {} doesn't support the Agentic Coding Protocol (ACP).",
+                    "Your installed version of Codex {} doesn't support the Agentic Coding Protocol (ACP).",
                     current_version
                 ).into(),
-                upgrade_message: "Upgrade Gemini to Latest".into(),
-                upgrade_command: "npm install -g @google/gemini-cli@latest".into(),
+                upgrade_message: "Upgrade Codex to Latest".into(),
+                upgrade_command: "npm install -g @openai/codex@latest".into(),
             })
         }
     }
@@ -126,17 +123,15 @@ mod test {
     use crate::AgentServerCommand;
     use std::path::Path;
 
-    crate::common_e2e_tests!(local_gemini());
+    crate::common_e2e_tests!(local_codex());
 
-    fn local_gemini() -> AgentServerCommand {
+    fn local_codex() -> AgentServerCommand {
         let cli_path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../gemini-cli/packages/cli")
-            .to_string_lossy()
-            .to_string();
+            .join("../../../codex/codex-rs/target/debug/codex");
 
         AgentServerCommand {
-            path: "node".into(),
-            args: vec![cli_path, ACP_ARG.into()],
+            path: cli_path,
+            args: vec![ACP_ARG.into()],
             env: None,
         }
     }

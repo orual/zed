@@ -1,7 +1,11 @@
 mod claude;
+mod codex;
 mod gemini;
 mod settings;
 mod stdio_agent_server;
+
+#[cfg(test)]
+mod e2e_tests;
 
 pub use claude::*;
 pub use gemini::*;
