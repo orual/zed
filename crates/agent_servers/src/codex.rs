@@ -10,7 +10,7 @@ use crate::AllAgentServersSettings;
 #[derive(Clone)]
 pub struct Codex;
 
-const ACP_ARG: &str = "experimental-acp";
+pub(crate) const ACP_ARG: &str = "experimental-acp";
 
 impl StdioAgentServer for Codex {
     fn name(&self) -> &'static str {
@@ -118,14 +118,14 @@ impl StdioAgentServer for Codex {
 }
 
 #[cfg(test)]
-mod test {
+pub(crate) mod test {
     use super::*;
     use crate::AgentServerCommand;
     use std::path::Path;
 
-    crate::common_e2e_tests!(local_codex());
+    crate::common_e2e_tests!(Codex);
 
-    fn local_codex() -> AgentServerCommand {
+    pub fn local_codex() -> AgentServerCommand {
         let cli_path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../../codex/codex-rs/target/debug/codex");
 

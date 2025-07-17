@@ -1,6 +1,6 @@
 use std::{path::Path, sync::Arc, time::Duration};
 
-use crate::AgentServer;
+use crate::{AgentServer, AgentServerSettings, AllAgentServersSettings};
 use acp_thread::{
     AcpThread, AgentThreadEntry, ToolCall, ToolCallConfirmation, ToolCallContent, ToolCallStatus,
 };
@@ -9,17 +9,18 @@ use anyhow::Result;
 use futures::{FutureExt, StreamExt, channel::mpsc, select};
 use gpui::{AsyncApp, Entity, TestAppContext};
 use indoc::indoc;
+use language::language_settings::{AllLanguageSettings, LanguageSettings};
 use project::{FakeFs, Project};
 use serde_json::json;
-use settings::SettingsStore;
+use settings::{Settings, SettingsStore};
 use util::path;
 
 use crate::{AgentServerCommand, AgentServerVersion, StdioAgentServer};
 
-pub async fn test_basic(command: AgentServerCommand, cx: &mut TestAppContext) {
+pub async fn test_basic(server: impl AgentServer + 'static, cx: &mut TestAppContext) {
     let fs = init_test(cx).await;
     let project = Project::test(fs, [], cx).await;
-    let thread = new_test_thread(command, project.clone(), "/private/tmp", cx).await;
+    let thread = new_test_thread(server, project.clone(), "/private/tmp", cx).await;
 
     thread
         .update(cx, |thread, cx| thread.send_raw("Hello from Zed!", cx))
@@ -39,7 +40,7 @@ pub async fn test_basic(command: AgentServerCommand, cx: &mut TestAppContext) {
     });
 }
 
-pub async fn test_path_mentions(command: AgentServerCommand, cx: &mut TestAppContext) {
+pub async fn test_path_mentions(server: impl AgentServer + 'static, cx: &mut TestAppContext) {
     let _fs = init_test(cx).await;
 
     let tempdir = tempfile::tempdir().unwrap();
@@ -53,7 +54,7 @@ pub async fn test_path_mentions(command: AgentServerCommand, cx: &mut TestAppCon
     )
     .expect("failed to write file");
     let project = Project::example([tempdir.path()], &mut cx.to_async()).await;
-    let thread = new_test_thread(command, project.clone(), tempdir.path(), cx).await;
+    let thread = new_test_thread(server, project.clone(), tempdir.path(), cx).await;
     thread
         .update(cx, |thread, cx| {
             thread.send(
@@ -94,7 +95,7 @@ pub async fn test_path_mentions(command: AgentServerCommand, cx: &mut TestAppCon
     });
 }
 
-pub async fn test_tool_call(command: AgentServerCommand, cx: &mut TestAppContext) {
+pub async fn test_tool_call(server: impl AgentServer + 'static, cx: &mut TestAppContext) {
     let fs = init_test(cx).await;
     fs.insert_tree(
         path!("/private/tmp"),
@@ -102,7 +103,7 @@ pub async fn test_tool_call(command: AgentServerCommand, cx: &mut TestAppContext
     )
     .await;
     let project = Project::test(fs, [path!("/private/tmp").as_ref()], cx).await;
-    let thread = new_test_thread(command, project.clone(), "/private/tmp", cx).await;
+    let thread = new_test_thread(server, project.clone(), "/private/tmp", cx).await;
 
     thread
         .update(cx, |thread, cx| {
@@ -130,12 +131,12 @@ pub async fn test_tool_call(command: AgentServerCommand, cx: &mut TestAppContext
 }
 
 pub async fn test_tool_call_with_confirmation(
-    command: AgentServerCommand,
+    server: impl AgentServer + 'static,
     cx: &mut TestAppContext,
 ) {
     let fs = init_test(cx).await;
     let project = Project::test(fs, [path!("/private/tmp").as_ref()], cx).await;
-    let thread = new_test_thread(command, project.clone(), "/private/tmp", cx).await;
+    let thread = new_test_thread(server, project.clone(), "/private/tmp", cx).await;
     let full_turn = thread.update(cx, |thread, cx| {
         thread.send_raw(r#"Run `echo "Hello, world!"`"#, cx)
     });
@@ -195,11 +196,11 @@ pub async fn test_tool_call_with_confirmation(
     });
 }
 
-pub async fn test_cancel(command: AgentServerCommand, cx: &mut TestAppContext) {
+pub async fn test_cancel(server: impl AgentServer + 'static, cx: &mut TestAppContext) {
     let fs = init_test(cx).await;
 
     let project = Project::test(fs, [path!("/private/tmp").as_ref()], cx).await;
-    let thread = new_test_thread(command, project.clone(), "/private/tmp", cx).await;
+    let thread = new_test_thread(server, project.clone(), "/private/tmp", cx).await;
     let full_turn = thread.update(cx, |thread, cx| {
         thread.send_raw(r#"Run `echo "Hello, world!"`"#, cx)
     });
@@ -256,35 +257,35 @@ pub async fn test_cancel(command: AgentServerCommand, cx: &mut TestAppContext) {
 
 #[macro_export]
 macro_rules! common_e2e_tests {
-    ($command:expr) => {
+    ($server:expr) => {
         #[::gpui::test]
         #[cfg_attr(not(feature = "e2e"), ignore)]
         async fn basic(cx: &mut ::gpui::TestAppContext) {
-            $crate::e2e_tests::test_basic($command, cx).await;
+            $crate::e2e_tests::test_basic($server, cx).await;
         }
 
         #[::gpui::test]
         #[cfg_attr(not(feature = "e2e"), ignore)]
         async fn path_mentions(cx: &mut ::gpui::TestAppContext) {
-            $crate::e2e_tests::test_path_mentions($command, cx).await;
+            $crate::e2e_tests::test_path_mentions($server, cx).await;
         }
 
         #[::gpui::test]
         #[cfg_attr(not(feature = "e2e"), ignore)]
         async fn tool_call(cx: &mut ::gpui::TestAppContext) {
-            $crate::e2e_tests::test_tool_call($command, cx).await;
+            $crate::e2e_tests::test_tool_call($server, cx).await;
         }
 
         #[::gpui::test]
         #[cfg_attr(not(feature = "e2e"), ignore)]
         async fn tool_call_with_confirmation(cx: &mut ::gpui::TestAppContext) {
-            $crate::e2e_tests::test_tool_call_with_confirmation($command, cx).await;
+            $crate::e2e_tests::test_tool_call_with_confirmation($server, cx).await;
         }
 
         #[::gpui::test]
         #[cfg_attr(not(feature = "e2e"), ignore)]
         async fn cancel(cx: &mut ::gpui::TestAppContext) {
-            $crate::e2e_tests::test_cancel($command, cx).await;
+            $crate::e2e_tests::test_cancel($server, cx).await;
         }
     };
 }
@@ -299,6 +300,19 @@ pub async fn init_test(cx: &mut TestAppContext) -> Arc<FakeFs> {
         cx.set_global(settings_store);
         Project::init_settings(cx);
         language::init(cx);
+        crate::settings::init(cx);
+
+        crate::AllAgentServersSettings::override_global(
+            AllAgentServersSettings {
+                gemini: Some(AgentServerSettings {
+                    command: crate::gemini::test::local_gemini().into(),
+                }),
+                codex: Some(AgentServerSettings {
+                    command: crate::codex::test::local_codex().into(),
+                }),
+            },
+            cx,
+        );
     });
 
     cx.executor().allow_parking();
@@ -307,52 +321,13 @@ pub async fn init_test(cx: &mut TestAppContext) -> Arc<FakeFs> {
 }
 
 pub async fn new_test_thread(
-    command: AgentServerCommand,
+    server: impl AgentServer + 'static,
     project: Entity<Project>,
     current_dir: impl AsRef<Path>,
     cx: &mut TestAppContext,
 ) -> Entity<AcpThread> {
-    #[derive(Clone)]
-    struct TestServer {
-        command: AgentServerCommand,
-    }
-
-    impl StdioAgentServer for TestServer {
-        async fn command(
-            &self,
-            _project: &Entity<Project>,
-            _cx: &mut AsyncApp,
-        ) -> Result<AgentServerCommand> {
-            Ok(self.command.clone())
-        }
-
-        async fn version(&self, _command: &AgentServerCommand) -> Result<AgentServerVersion> {
-            Ok(AgentServerVersion::Supported)
-        }
-
-        fn logo(&self) -> ui::IconName {
-            ui::IconName::Hammer
-        }
-
-        fn name(&self) -> &'static str {
-            "test"
-        }
-
-        fn empty_state_headline(&self) -> &'static str {
-            "test"
-        }
-
-        fn empty_state_message(&self) -> &'static str {
-            "test"
-        }
-
-        fn supports_always_allow(&self) -> bool {
-            true
-        }
-    }
-
     let thread = cx
-        .update(|cx| TestServer { command }.new_thread(current_dir.as_ref(), &project, cx))
+        .update(|cx| server.new_thread(current_dir.as_ref(), &project, cx))
         .await
         .unwrap();
 

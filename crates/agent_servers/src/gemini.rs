@@ -121,14 +121,14 @@ impl StdioAgentServer for Gemini {
 }
 
 #[cfg(test)]
-mod test {
+pub(crate) mod test {
     use super::*;
     use crate::AgentServerCommand;
     use std::path::Path;
 
-    crate::common_e2e_tests!(local_gemini());
+    crate::common_e2e_tests!(Gemini);
 
-    fn local_gemini() -> AgentServerCommand {
+    pub fn local_gemini() -> AgentServerCommand {
         let cli_path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../../gemini-cli/packages/cli")
             .to_string_lossy()
